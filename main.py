@@ -5,14 +5,13 @@ import csv
 import pandas as pd
 import sys
 import matplotlib.pyplot as plt
-from collections import defaultdict
 import functools
 import array
 import time
 import numpy as np
 import random
 import string
-from joblib import Parallel, delayed
+import concurrent.futures
 
 
 def hash_function_factory(m, seed):
@@ -46,6 +45,8 @@ class XorFilter:
         self.hashes = tuple([hash_function_factory(self.m, sd) for sd in range(self.d)])
         self.f = hash_function_factory(2 ** l, self.d)
 
+        print(f"hash functions: {self.d}, bits per slot: {self.l}, table size: {self.m}")
+
         sigma = self.insert(S)
         if sigma is not None:
             print("Insertion successful")
@@ -58,9 +59,11 @@ class XorFilter:
     def insert(self, S):
         # Insert all elements in S to table 1.
         for t in S:
-            hash_values = self.hash_all(t, self.hashes)
             for i in range(self.d):
-                self.table1[hash_values[i]].add(t)
+                self.table1[self.hashes[i](t)].add(t)
+            # hash_values = self.hash_all(t, self.hashes)
+            # for i in range(self.d):
+            #     self.table1[hash_values[i]].add(t)
 
         q = []
         for i in range(self.m):
@@ -68,7 +71,6 @@ class XorFilter:
                 q.append(i)
         sigma = []
         while len(q) != 0:
-            # print(len(sigma))
             i = q.pop(0)
             if len(self.table1[i]) == 1:
                 x = list(self.table1[i])[0]
@@ -200,18 +202,74 @@ querylist = data.Query.dropna()
 
 # print(BinaryFusedFilter(elems=querylist[:1200000], m=1.15, d=3, l=8).build_time)
 
-m_vals = [1.16 + 0.02 * i for i in range(20)]
-c_vals = [1.24 + 0.02 * i for i in range(16)]
-build_times_fused = [BinaryFusedFilter(elems=querylist[:1200000], m=m, d=3, l=8).build_time for m in m_vals]
-build_times_xor = [XorFilter(elems=querylist[:1200000], c=c, d=3, l=8).build_time for c in c_vals]
-plt.scatter(m_vals, build_times_fused, s=10)
-plt.scatter(c_vals, build_times_xor, s=10)
-plt.title("Build Time vs. Filter Size for XOR and Binary Fused (AOL Dataset)")
-plt.xlabel("Filter Size / Dataset Size")
-plt.ylabel("Build Time (s)")
-plt.ylim(bottom=0)
+# m_vals = [1.16 + 0.02 * i for i in range(22)]
+# c_vals = [1.24 + 0.02 * i for i in range(18)]
+# build_times_fused = [BinaryFusedFilter(elems=querylist[:1200000], m=m, d=3, l=8).build_time for m in m_vals]
+# build_times_xor = [XorFilter(elems=querylist[:1200000], c=c, d=3, l=8).build_time for c in c_vals]
+# plt.scatter(m_vals, build_times_fused, s=10)
+# plt.scatter(c_vals, build_times_xor, s=10)
+# plt.title("Build Time vs. Filter Size for XOR and Binary Fused (AOL Dataset)")
+# plt.xlabel("Filter Size / Dataset Size")
+# plt.ylabel("Build Time (s)")
+# plt.ylim(bottom=0)
+# plt.legend(labels=["binary fused filter", "xor filter"], loc="upper left")
+# plt.show()
+
+# Plot build time vs. number of keys
+# rand_list = []
+# for _ in range(10**7):
+#     rand_list.append(''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=50)))
+# keys = [1000000 + 100000 * i for i in range(22)]
+# build_times_fused = [BinaryFusedFilter(elems=rand_list[:k], m=1.15, d=3, l=8).build_time for k in keys]
+# build_times_xor = [XorFilter(elems=rand_list[:k], c=1.23, d=3, l=8).build_time for k in keys]
+# plt.scatter(keys, build_times_fused, s=5)
+# plt.scatter(keys, build_times_xor, s=5)
+# plt.title("Build Time vs. Number of Keys")
+# plt.xlabel("Number of keys")
+# plt.ylabel("Build time")
+# plt.legend(labels=["binary fused filter", "xor filter"], loc="upper left")
+# plt.show()
+
+
+def build_filter(filter_type, elements, **kwargs):
+    if filter_type == 'binary fused':
+        return BinaryFusedFilter(elems=elements, **kwargs).build_time
+    elif filter_type == 'xor':
+        return XorFilter(elems=elements, **kwargs).build_time
+    else:
+        raise ValueError(f"Unknown filter type: {filter_type}")
+
+
+def parallel_builds(filter_type, elements, num_keys, **kwargs):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(build_filter, filter_type, elements[:k], **kwargs): k for k in num_keys}
+        concurrent.futures.wait(futures)
+        build_times = {k: future.result() for future, k in futures.items()}
+    return build_times
+
+
+rand_list = []
+for _ in range(10**7):
+    rand_list.append(''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=50)))
+num_keys = [1000000 + 200000 * i for i in range(10)]
+binary_fused_kwargs = {'m': 1.14, 'd': 3, 'l': 8}
+xor_kwargs = {'c': 1.23, 'd': 3, 'l': 8}
+build_times_fused = parallel_builds('binary fused', rand_list, num_keys, **binary_fused_kwargs)
+# build_times_xor = parallel_builds('xor', rand_list, num_keys, **xor_kwargs)
+build_times_xor = [XorFilter(elems=rand_list[:k], c=1.23, d=3, l=8).build_time for k in num_keys]
+plt.scatter(num_keys, list(build_times_fused.values()), s=5)
+plt.scatter(num_keys, build_times_xor, s=5)
+plt.title("Build Time vs. Number of Keys")
+plt.xlabel("Number of keys")
+plt.ylabel("Build time")
 plt.legend(labels=["binary fused filter", "xor filter"], loc="upper left")
 plt.show()
+
+
+
+
+
+# TEMP CODE
 
 # class CoupledXorFilter:
 #     def __init__(self, elems, c, d, l, w):
