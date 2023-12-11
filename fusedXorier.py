@@ -73,6 +73,8 @@ class FusedXorierFilter:
         self.table1 = array.array("B", [0 for _ in range(self.m)])
         self.table2 = [0 for _ in range(self.m)]
 
+        self.arr = [set() for _ in range(self.m)]
+
         res = None
         tries = 0
         while res is None:
@@ -87,6 +89,11 @@ class FusedXorierFilter:
             hashes.append(hash_function_factory(2 ** q, random() * (2 ** 30) + tries))
 
             self.hashes = tuple(hashes)
+
+            for t in S:
+                hashes = self.hashAll(t, self.hashes)
+                for h, hashval in enumerate(hashes[0:len(hashes) - 2], 0):
+                    self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval].add(t)
 
             res = self.findMatch(S)
             tries += 1
@@ -111,21 +118,34 @@ class FusedXorierFilter:
 
     def findMatch(self, S):
         print("find match", len(S))
-        # lst = [0 for _ in range(int(self.m / self.w) - 3)]
-        # for t in S:
-        #     lst[self.window_hash(t)] += 1
-        # print(lst)
         E = set()
         PI = []
         matching = {}
         singletons = self.singletons(S)
 
-        for t in S:
-            j = self.tweak(t, singletons)
-            if j == None:
-                continue
-            E.add(t)
-            matching[t] = j
+        queue = []
+        for singleton in singletons:
+            queue.append(singleton)
+
+        while len(queue) != 0:
+            i = queue.pop(len(queue) - 1)
+            if len(self.arr[i]) == 1:
+                x = list(self.arr[i])[0]
+                E.add(x)
+                matching[x] = self.tweak(x, singletons)
+                singletons.remove(i)
+
+                hashes = self.hashAll(x, self.hashes)
+                for h, hashval in enumerate(hashes[0:len(hashes) - 2], 0):
+                    self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval].remove(x)
+                    # find new singletons following peeling of found ones
+                    if len(self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval]) == 1:
+                        queue.append((hashes[len(hashes) - 2] + h) * self.w + hashval)
+                        new_singleton = list(self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval])[0]
+                        new_singleton_loc = (hashes[len(hashes) - 2] + h) * self.w + hashval
+                        singletons.add(new_singleton_loc)
+                        E.add(new_singleton)
+                        matching[new_singleton] = self.tweak(new_singleton, singletons)
 
         if len(E) == 0:
             return None
@@ -133,10 +153,7 @@ class FusedXorierFilter:
         PIprime, matchingPrime = [], {}
         H = S.difference(E)
         if len(H) > 0:
-            res = self.findMatch(H)
-            if res == None:
-                return None
-            PIprime, matchingPrime = res
+            return None
 
         PI = PIprime
         for t in E:
