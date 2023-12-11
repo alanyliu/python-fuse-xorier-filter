@@ -202,18 +202,18 @@ querylist = data.Query.dropna()
 
 # print(BinaryFusedFilter(elems=querylist[:1200000], m=1.15, d=3, l=8).build_time)
 
-# m_vals = [1.16 + 0.02 * i for i in range(22)]
-# c_vals = [1.24 + 0.02 * i for i in range(18)]
-# build_times_fused = [BinaryFusedFilter(elems=querylist[:1200000], m=m, d=3, l=8).build_time for m in m_vals]
-# build_times_xor = [XorFilter(elems=querylist[:1200000], c=c, d=3, l=8).build_time for c in c_vals]
-# plt.scatter(m_vals, build_times_fused, s=10)
-# plt.scatter(c_vals, build_times_xor, s=10)
-# plt.title("Build Time vs. Filter Size for XOR and Binary Fused (AOL Dataset)")
-# plt.xlabel("Filter Size / Dataset Size")
-# plt.ylabel("Build Time (s)")
-# plt.ylim(bottom=0)
-# plt.legend(labels=["binary fused filter", "xor filter"], loc="upper left")
-# plt.show()
+m_vals = [1.16 + 0.02 * i for i in range(22)]
+c_vals = [1.24 + 0.02 * i for i in range(18)]
+build_times_fused = [BinaryFusedFilter(elems=querylist[:1200000], m=m, d=3, l=8).build_time for m in m_vals]
+build_times_xor = [XorFilter(elems=querylist[:1200000], c=c, d=3, l=8).build_time for c in c_vals]
+plt.scatter(m_vals, build_times_fused, s=10)
+plt.scatter(c_vals, build_times_xor, s=10)
+plt.title("Build Time vs. Filter Size for XOR and Binary Fused (AOL Dataset)")
+plt.xlabel("Filter Size / Dataset Size")
+plt.ylabel("Build Time (s)")
+plt.ylim(bottom=0)
+plt.legend(labels=["binary fused filter", "xor filter"], loc="upper left")
+plt.show()
 
 # Plot build time vs. number of keys
 # rand_list = []
@@ -251,14 +251,14 @@ def parallel_builds(filter_type, elements, num_keys, **kwargs):
 rand_list = []
 for _ in range(10**7):
     rand_list.append(''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=50)))
-num_keys = [1000000 + 200000 * i for i in range(10)]
+num_keys = [1000000 + 200000 * i for i in range(5)]
 binary_fused_kwargs = {'m': 1.14, 'd': 3, 'l': 8}
 xor_kwargs = {'c': 1.23, 'd': 3, 'l': 8}
 build_times_fused = parallel_builds('binary fused', rand_list, num_keys, **binary_fused_kwargs)
-# build_times_xor = parallel_builds('xor', rand_list, num_keys, **xor_kwargs)
-build_times_xor = [XorFilter(elems=rand_list[:k], c=1.23, d=3, l=8).build_time for k in num_keys]
+build_times_xor = parallel_builds('xor', rand_list, num_keys, **xor_kwargs)
+# build_times_xor = [XorFilter(elems=rand_list[:k], c=1.23, d=3, l=8).build_time for k in num_keys]
 plt.scatter(num_keys, list(build_times_fused.values()), s=5)
-plt.scatter(num_keys, build_times_xor, s=5)
+plt.scatter(num_keys, list(build_times_xor.values()), s=5)
 plt.title("Build Time vs. Number of Keys")
 plt.xlabel("Number of keys")
 plt.ylabel("Build time")

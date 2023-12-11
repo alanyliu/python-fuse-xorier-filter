@@ -1,7 +1,7 @@
 from sklearn.utils import murmurhash3_32
 from bitarray import bitarray
 import math
-from random import randint, random, seed
+from random import randint, random, seed, choices
 import csv
 import pandas as pd
 import sys
@@ -12,6 +12,7 @@ import array
 import time
 from joblib import Parallel, delayed
 from typing import Callable, Dict
+import string
 
 seed("Baker Comes First!")
 
@@ -238,3 +239,16 @@ for k in test_set:
         fp += 1
 
 print(f'false positive rate: {fp / len(test_set)}')
+
+
+rand_dict = defaultdict(int)
+for _ in range(3 * 10**6):
+    rand_dict[''.join(choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=50))] += 1
+num_keys = [250000 * i for i in range(1, 12)]
+fusedXorierTimes = [math.log(FusedXorierFilter(dict(list(rand_dict.items())[:k]), 1.23, 3, 8).buildTime, 10) for k in num_keys]
+plt.plot([i for i in range(0, 5 * 10**6, 10**6)], [i for i in range(5)])
+plt.scatter(num_keys, fusedXorierTimes, s=5)
+plt.title("Build Time vs. Number of Keys (Fused XORier)")
+plt.xlabel("number of keys")
+plt.ylabel("log10 build time")
+plt.show()
