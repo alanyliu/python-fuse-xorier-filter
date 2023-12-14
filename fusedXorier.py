@@ -56,11 +56,12 @@ class FusedXorierFilter:
         k: number of hash functions
         q: number of bits per slot
     """
-    def __init__(self, elems: Dict[any, any], c: float, k: int, q: int):
+    def __init__(self, elems: Dict[any, any], c: float, k: int, q: int, use_cache=False):
         start = time.time()
         self.m = int(c * len(elems))
         self.k = k
         self.q = q
+        self.use_cache = use_cache
 
         S = {elem for elem in elems}
         self.n = len(S)
@@ -89,11 +90,11 @@ class FusedXorierFilter:
             self.hashes = tuple(hashes)
 
             for t in S:
-                hashes = self.hashAll(t, self.hashes)
+                hashes = self.hash_all(t, self.hashes)
                 for h, hashval in enumerate(hashes[0:len(hashes) - 2], 0):
                     self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval].add(t)
 
-            res = self.findMatch(S)
+            res = self.find_match(S)
             tries += 1
             if tries > 10:
                 raise Exception("too many tries with k=", k)
@@ -101,7 +102,7 @@ class FusedXorierFilter:
         PI, matching = res
         for t in PI:
             v = elems[t]
-            hashes = self.hashAll(t, self.hashes)
+            hashes = self.hash_all(t, self.hashes)
             neighborhood = [((hashes[len(hashes) - 2] + h) * self.w) + hashes[h] for h in range(len(self.hashes) - 2)]
             M = hashes[len(hashes) - 1]
             l = matching[t]
@@ -114,7 +115,7 @@ class FusedXorierFilter:
 
         self.buildTime = time.time() - start
 
-    def findMatch(self, S):
+    def find_match(self, S):
         """
         Finds a matching of S based on the bloomier filter paper.
         :param S: a set of elements to be inserted
@@ -140,7 +141,7 @@ class FusedXorierFilter:
                 matching[x] = self.tweak(x, singletons)
                 singletons.remove(i)
 
-                hashes = self.hashAll(x, self.hashes)
+                hashes = self.hash_all(x, self.hashes)
                 for h, hashval in enumerate(hashes[0:len(hashes) - 2], 0):
                     self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval].remove(x)
                     # Find new singletons following peeling of found ones.
@@ -173,7 +174,7 @@ class FusedXorierFilter:
         :param singletons: a set of current singletons
         :return: the index of the hash function in neighborhood, None if not found
         """
-        hashes = self.hashAll(t, self.hashes)
+        hashes = self.hash_all(t, self.hashes)
         neighborhood = [((hashes[len(hashes) - 2] + h) * self.w) + hashes[h] for h in range(len(self.hashes) - 2)]
 
         for i in range(len(neighborhood)):
@@ -189,7 +190,7 @@ class FusedXorierFilter:
         """
         locFreqs = defaultdict(lambda: 0)
         for t in S:
-            hashes = self.hashAll(t, self.hashes)
+            hashes = self.hash_all(t, self.hashes)
             neighborhood = [((hashes[len(hashes) - 2] + h) * self.w) + hashes[h] for h in range(len(self.hashes) - 2)]
             for n in neighborhood:
                 locFreqs[n] += 1
@@ -199,8 +200,19 @@ class FusedXorierFilter:
                 singles.add(k)
         return singles
 
+    def hash_all(self, t, hashes):
+        """
+        Get hash codes for each element with or without caching (depending on if the use_cache flag is set).
+        :param t: an element to be hashed
+        :param hashes: the set of all hashes (window selector, location within window, calculating M)
+        :return: the hash codes for all hash functions with input t
+        """
+        if self.use_cache:
+            return self.hash_all_cached(t, hashes)
+        return [hashes[i](t) for i in range(len(hashes))]
+
     @functools.cache
-    def hashAll(self, t, hashes):
+    def hash_all_cached(self, t, hashes):
         """
         Caching all hashes for each element that leads to improved speedup (for a reasonable input size).
         :param t: an element to be hashed
@@ -209,13 +221,13 @@ class FusedXorierFilter:
         """
         return [hashes[i](t) for i in range(len(hashes))]
 
-    def findPlace(self, t):
+    def find_place(self, t):
         """
         Helper for querying the input element in the fused XORier lookup table.
         :param t: an element to be queried
         :return: the hash code for its fingerprint if found, None otherwise
         """
-        hashes = self.hashAll(t, self.hashes)
+        hashes = self.hash_all(t, self.hashes)
         neighborhood = [((hashes[len(hashes) - 2] + h) * self.w) + hashes[h] for h in range(len(self.hashes) - 2)]
         M = hashes[len(hashes) - 1]
 
@@ -231,7 +243,7 @@ class FusedXorierFilter:
         :param t: an element to be queried
         :return: its XOR value in the fused XORier table if found, None otherwise
         """
-        L = self.findPlace(t)
+        L = self.find_place(t)
         if L is None:
             return None
         return self.table2[L]
@@ -243,7 +255,7 @@ class FusedXorierFilter:
         :param v: new value
         :return: True if operation successful, False otherwise
         """
-        L = self.findPlace(t)
+        L = self.find_place(t)
         if L is None:
             return False
         self.table2[L] = v
@@ -265,14 +277,28 @@ for i, q in enumerate(querylist):
 
 total_keys_size = sum([get_size(key) for key in train_set])
 
-fusedXorierFilter = FusedXorierFilter(train_set, 1.23, 3, 8)
+fusedXorier = FusedXorierFilter(train_set, 1.23, 3, 8, False)
 
-print(get_size(fusedXorierFilter) / total_keys_size, get_size(train_set) / total_keys_size)
-print(f'build time: {fusedXorierFilter.buildTime}')
+print('Fused xorier without cache (c = 1.23, k = 3, q = 8)')
+print(get_size(fusedXorier) / total_keys_size, get_size(train_set) / total_keys_size)
+print(f'build time: {fusedXorier.buildTime}')
 
 fp = 0
 for k in test_set:
-    if fusedXorierFilter.lookup(k) is not None and k not in train_set:
+    if fusedXorier.lookup(k) is not None and k not in train_set:
+        fp += 1
+
+print(f'false positive rate: {fp / len(test_set)}')
+
+fusedXorierWithCache = FusedXorierFilter(train_set, 1.23, 3, 8, True)
+
+print('Fused xorier with cache (c = 1.23, k = 3, q = 8)')
+print(get_size(fusedXorierWithCache) / total_keys_size, get_size(train_set) / total_keys_size)
+print(f'build time: {fusedXorierWithCache.buildTime}')
+
+fp = 0
+for k in test_set:
+    if fusedXorierWithCache.lookup(k) is not None and k not in train_set:
         fp += 1
 
 print(f'false positive rate: {fp / len(test_set)}')
