@@ -41,24 +41,21 @@ def get_size(obj, seen=None):
 hash_function = Callable[[int | bytes | str], int]
 
 
-def hash_function_factory(m: int, seed: any) -> hash_function:
-    return lambda x: int(murmurhash3_32(x, seed) % m)
+def hash_function_factory(m: int, sd: any) -> hash_function:
+    return lambda x: int(murmurhash3_32(x, sd) % m)
 
-
-# k - num hash funcs
-# q - bits per entry
-# m - size of table
-# n - num keys
-# c - size of table / num keys
-# w - segment length
-# S - support
-# D - domain
-# R - Range
 
 class FusedXorierFilter:
     """
-    FusedXorierFilter is a class representing a probabilistic data structure that is a generalization of the Bloomier
-    filter with spatial coupling and hash caching.
+    FusedXorierFilter is a class representing a newly devised structure called the fused XORier filter, a probabilistic
+    data structure that is a generalization of the Bloomier filter with spatial coupling, hash caching, and linear
+    construction time.
+
+    Parameters:
+        elems: a dictionary of keys mapped to their number of occurrences
+        c: ratio of table size to the number of keys
+        k: number of hash functions
+        q: number of bits per slot
     """
     def __init__(self, elems: Dict[any, any], c: float, k: int, q: int):
         start = time.time()
@@ -74,6 +71,7 @@ class FusedXorierFilter:
         self.table1 = array.array("B", [0 for _ in range(self.m)])
         self.table2 = [0 for _ in range(self.m)]
 
+        # An additional table for keeping track of elements when peeling singletons.
         self.arr = [set() for _ in range(self.m)]
 
         res = None
@@ -82,11 +80,11 @@ class FusedXorierFilter:
             print("finding matching")
             hashes = []
             for _ in range(k):
-                # hash into locations within the segments
+                # Hash into locations within the segments.
                 hashes.append(hash_function_factory(self.w, random() * (2 ** 30) + tries))
-            # pick a random starting segment
+            # Pick a random starting segment.
             hashes.append(hash_function_factory(self.num_segs - self.k, random() * (2 ** 30) + tries))
-            # get hash code for M
+            # Get hash code for M.
             hashes.append(hash_function_factory(2 ** q, random() * (2 ** 30) + tries))
 
             self.hashes = tuple(hashes)
@@ -118,16 +116,23 @@ class FusedXorierFilter:
         self.buildTime = time.time() - start
 
     def findMatch(self, S):
+        """
+        Finds a matching of S based on the bloomier filter paper.
+        :param S: a set of elements to be inserted
+        :return: an ordering and matching of S, None if failed
+        """
         print("find match", len(S))
         E = set()
         PI = []
         matching = {}
         singletons = self.singletons(S)
 
+        # Add any singletons at the start.
         queue = []
         for singleton in singletons:
             queue.append(singleton)
 
+        # Look for singletons.
         while len(queue) != 0:
             i = queue.pop(len(queue) - 1)
             if len(self.arr[i]) == 1:
@@ -139,7 +144,7 @@ class FusedXorierFilter:
                 hashes = self.hashAll(x, self.hashes)
                 for h, hashval in enumerate(hashes[0:len(hashes) - 2], 0):
                     self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval].remove(x)
-                    # find new singletons following peeling of found ones
+                    # Find new singletons following peeling of found ones.
                     if len(self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval]) == 1:
                         queue.append((hashes[len(hashes) - 2] + h) * self.w + hashval)
                         new_singleton = list(self.arr[(hashes[len(hashes) - 2] + h) * self.w + hashval])[0]
@@ -154,6 +159,7 @@ class FusedXorierFilter:
         PIprime, matchingPrime = [], {}
         H = S.difference(E)
         if len(H) > 0:
+            # Different from original Bloomier filter -> should not happen now.
             return None
 
         PI = PIprime
@@ -162,6 +168,12 @@ class FusedXorierFilter:
         return PI, matching | matchingPrime
 
     def tweak(self, t, singletons):
+        """
+        Determine the indices of hash functions for singletons.
+        :param t: an element in S
+        :param singletons: a set of current singletons
+        :return: the index of the hash function in neighborhood, None if not found
+        """
         hashes = self.hashAll(t, self.hashes)
         neighborhood = [((hashes[len(hashes) - 2] + h) * self.w) + hashes[h] for h in range(len(self.hashes) - 2)]
 
@@ -171,6 +183,11 @@ class FusedXorierFilter:
         return None
 
     def singletons(self, S):
+        """
+        Finds all singletons for non-peeled elements.
+        :param S: a set of elements to be inserted
+        :return: a set of all current singletons
+        """
         locFreqs = defaultdict(lambda: 0)
         for t in S:
             hashes = self.hashAll(t, self.hashes)
@@ -185,10 +202,20 @@ class FusedXorierFilter:
 
     @functools.cache
     def hashAll(self, t, hashes):
+        """
+        Caching all hashes for each element that leads to improved speedup (for a reasonable input size).
+        :param t: an element to be hashed
+        :param hashes: the set of all hashes (window selector, location within window, calculating M)
+        :return: the hash codes for all hash functions with input t
+        """
         return [hashes[i](t) for i in range(len(hashes))]
 
-    # @functools.cache
     def findPlace(self, t):
+        """
+        Helper for querying the input element in the fused XORier lookup table.
+        :param t: an element to be queried
+        :return: the hash code for its fingerprint if found, None otherwise
+        """
         hashes = self.hashAll(t, self.hashes)
         neighborhood = [((hashes[len(hashes) - 2] + h) * self.w) + hashes[h] for h in range(len(self.hashes) - 2)]
         M = hashes[len(hashes) - 1]
@@ -200,14 +227,25 @@ class FusedXorierFilter:
         return None
 
     def lookup(self, t):
+        """
+        Query for an element.
+        :param t: an element to be queried
+        :return: its XOR value in the fused XORier table if found, None otherwise
+        """
         L = self.findPlace(t)
-        if L == None:
+        if L is None:
             return None
         return self.table2[L]
 
     def set_value(self, t, v):
+        """
+        Sets the value of an input element t to v in the fused XORier table.
+        :param t: input element to be set
+        :param v: new value
+        :return: True if operation successful, False otherwise
+        """
         L = self.findPlace(t)
-        if L == None:
+        if L is None:
             return False
         self.table2[L] = v
         return True

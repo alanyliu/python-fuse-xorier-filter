@@ -18,18 +18,17 @@ def hash_function_factory(m, seed):
     return lambda x: int(murmurhash3_32(x, seed) % m)
 
 
-# e - fp rate
-# d - num hash funcs
-# m - size of table
-# l - bits per entry
-# c - size of table / num keys
-# w - size of window / size of table
-# S - support
-# D - domain
-# R - Range
-
-
 class XorFilter:
+    """
+    XorFilter is a class representing an XOR filter, a static data structure with set membership and linear
+    construction time.
+
+    Parameters:
+        elems: a set of elements to be inserted during construction time
+        c: ratio of size of table to number of keys (n/m)
+        d: number of hash functions
+        l: number of bits stored per slot
+    """
     def __init__(self, elems, c, d, l):
         start = time.time()
         S = {elem for elem in elems}
@@ -37,16 +36,19 @@ class XorFilter:
         self.l = l
         self.d = d
 
-        # pair of tables for 1) set of keys, 2) l-bits
+        # Initialize a pair of tables for 1) the set of keys, and 2) l-bits per slot (the actual XOR table).
         self.table1 = [set() for _ in range(self.m)]
         self.table2 = array.array("I", [0 for _ in range(self.m)])
 
-        # hash functions for buckets in table 1, f for hash code of an element for table 2
+        # Hash functions for buckets in table 1.
         self.hashes = tuple([hash_function_factory(self.m, sd) for sd in range(self.d)])
+
+        # Fingerprint of an element for table 2.
         self.f = hash_function_factory(2 ** l, self.d)
 
         print(f"hash functions: {self.d}, bits per slot: {self.l}, table size: {self.m}")
 
+        # Insert the elements into the filter and calculate fingerprints for storage.
         sigma = self.insert(S)
         if sigma is not None:
             print("Insertion successful")
@@ -57,18 +59,22 @@ class XorFilter:
         self.build_time = time.time() - start
 
     def insert(self, S):
+        """
+        Inserts the elements in S into the initial table.
+        :param S: set of elements
+        :return: a list of tuples of elements corresponding to the values that hash to their locations
+        """
         # Insert all elements in S to table 1.
         for t in S:
             for i in range(self.d):
                 self.table1[self.hashes[i](t)].add(t)
-            # hash_values = self.hash_all(t, self.hashes)
-            # for i in range(self.d):
-            #     self.table1[hash_values[i]].add(t)
 
+        # Add any singletons at the start.
         q = []
         for i in range(self.m):
             if len(self.table1[i]) == 1:
                 q.append(i)
+        # Continuing peeling and finding new singletons.
         sigma = []
         while len(q) != 0:
             i = q.pop(0)
@@ -85,41 +91,52 @@ class XorFilter:
         return sigma if len(sigma) == len(S) else None
 
     def assign(self, sigma):
+        """
+        Conducts XOR operations with hashcodes and fingerprint to store elements in the XOR table.
+        :param sigma: a list of tuples of elements corresponding to values that hash to locations in the initial table
+        :return: nothing
+        """
         for x, i in sigma:
             hash_values = [self.hashes[func](x) for func in range(self.d)]
             bit_values = [self.table2[hash_value] for hash_value in hash_values]
             self.table2[i] = self.f(x) ^ np.bitwise_xor.reduce(bit_values)
 
-    @functools.lru_cache(maxsize=None)
-    def hash_all(self, t, hashes):
-        return [hashes[i](t) for i in range(len(hashes))]
-
 
 class BinaryFusedFilter:
+    """
+    BinaryFusedFilter is a class representing a binary fused filter, a static data structure with set membership, linear
+    construction time, and an improved space usage.
+
+    Parameters:
+        elems: a set of elements to insert
+        m: size of the binary fused table
+        d: number of hash functions
+        l: number of bits per slot
+    """
     def __init__(self, elems, m, d, l):
         start = time.time()
         S = [elem for elem in set(elems)]
         self.n = len(S)
-        self.m = int(m * self.n)  # hash table size
-        self.l = l  # number of bits
-        self.d = d  # number of hash functions
+        self.m = int(m * self.n)
+        self.l = l
+        self.d = d
         self.s = int(2 ** math.floor(math.log(self.n, 3.33) + 2.25))  # segment length
 
         print(f"hash functions: {self.d}, bits per slot: {self.l}, input set size: {self.n}, segment size: {self.s}")
 
-        # the binary fuse filter itself
+        # The binary fuse filter itself.
         self.h = [0 for _ in range(self.m)]
 
-        # fingerprint hash
+        # Fingerprint hash function.
         self.f = hash_function_factory(2 ** l, seed=0)
 
-        # selecting random start segments for each element
+        # Select random start segments for each element.
         self.start_segs = {}
         for x in S:
             start_seg = random.randint(0, int(self.m / self.s) - self.d)
             self.start_segs[x] = start_seg
 
-        # construct the filter
+        # Construct the filter.
         sigma, w_hashes = self.preprocess(S, 10)
         if len(sigma) == self.n:
             print("Preprocessing successful")
@@ -131,10 +148,13 @@ class BinaryFusedFilter:
         self.build_time = time.time() - start
 
     def preprocess(self, S, max_iter) -> (list, list):
-        # for x in S:
-        #     start_seg = random.randint(0, int(self.m / self.s) - self.d)
-        #     self.start_segs[x] = start_seg
-
+        """
+        Add all elements to an initial array for preprocessing to the actual binary fused table.
+        :param S: a set of elements
+        :param max_iter: max number of tries to give; if exceeded, the binary fused filter could not be created
+        :return: a list of tuples of elements corresponding to the values that hash to their locations,
+                    another list of the generated window hash functions
+        """
         p = []
         w_hashes = []
         it = 0
@@ -187,20 +207,20 @@ class BinaryFusedFilter:
         return p, w_hashes
 
     def insert(self, p, w_hashes):
+        """
+        Conducts the XOR operations with the hashcodes in consecutive windows and the fingerprint.
+        :param p: a list of tuples of elements corresponding to the values that hash to their locations
+        :param w_hashes: window hash functions
+        :return: nothing
+        """
         while len(p) != 0:
             x, i = p.pop(len(p) - 1)
             locs = [self.h[self.start_segs[x] * self.s + w_hashes[idx](x)] for idx in range(self.d)]
             self.h[i] = self.f(x) ^ np.bitwise_xor.reduce(locs)
 
-    # @functools.lru_cache(maxsize=None)
-    # def hash_all(self, t, hashes):
-    #     return [hashes[i](t) for i in range(len(hashes))]
-
 
 data = pd.read_csv('user-ct-test-collection-01.txt', sep="\t")
 querylist = data.Query.dropna()
-
-# print(BinaryFusedFilter(elems=querylist[:1200000], m=1.15, d=3, l=8).build_time)
 
 m_vals = [1.16 + 0.02 * i for i in range(22)]
 c_vals = [1.24 + 0.02 * i for i in range(18)]
@@ -256,7 +276,6 @@ binary_fused_kwargs = {'m': 1.14, 'd': 3, 'l': 8}
 xor_kwargs = {'c': 1.23, 'd': 3, 'l': 8}
 build_times_fused = parallel_builds('binary fused', rand_list, num_keys, **binary_fused_kwargs)
 build_times_xor = parallel_builds('xor', rand_list, num_keys, **xor_kwargs)
-# build_times_xor = [XorFilter(elems=rand_list[:k], c=1.23, d=3, l=8).build_time for k in num_keys]
 plt.scatter(num_keys, list(build_times_fused.values()), s=5)
 plt.scatter(num_keys, list(build_times_xor.values()), s=5)
 plt.title("Build Time vs. Number of Keys")
