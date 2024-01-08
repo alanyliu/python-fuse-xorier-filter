@@ -44,9 +44,9 @@ def hash_function_factory(m: int, sd: any) -> hash_function:
     return lambda x: int(murmurhash3_32(x, sd) % m)
 
 
-class FusedXorierFilter:
+class FuseXorierFilter:
     """
-    FusedXorierFilter is a class representing a newly devised structure called the fused XORier filter, a probabilistic
+    FuseXorierFilter is a class representing a newly devised structure called the fuse XORier filter, a probabilistic
     data structure that is a generalization of the Bloomier filter with spatial coupling, hash caching, and linear
     construction time.
 
@@ -223,7 +223,7 @@ class FusedXorierFilter:
 
     def find_place(self, t):
         """
-        Helper for querying the input element in the fused XORier lookup table.
+        Helper for querying the input element in the fuse XORier lookup table.
         :param t: an element to be queried
         :return: the hash code for its fingerprint if found, None otherwise
         """
@@ -241,7 +241,7 @@ class FusedXorierFilter:
         """
         Query for an element.
         :param t: an element to be queried
-        :return: its XOR value in the fused XORier table if found, None otherwise
+        :return: its XOR value in the fuse XORier table if found, None otherwise
         """
         L = self.find_place(t)
         if L is None:
@@ -250,7 +250,7 @@ class FusedXorierFilter:
 
     def set_value(self, t, v):
         """
-        Sets the value of an input element t to v in the fused XORier table.
+        Sets the value of an input element t to v in the fuse XORier table.
         :param t: input element to be set
         :param v: new value
         :return: True if operation successful, False otherwise
@@ -277,28 +277,28 @@ for i, q in enumerate(querylist):
 
 total_keys_size = sum([get_size(key) for key in train_set])
 
-fusedXorier = FusedXorierFilter(train_set, 1.23, 3, 8, False)
+fuseXorier = FuseXorierFilter(train_set, 1.23, 3, 8, False)
 
-print('Fused xorier without cache (c = 1.23, k = 3, q = 8)')
-print(get_size(fusedXorier) / total_keys_size, get_size(train_set) / total_keys_size)
-print(f'build time: {fusedXorier.buildTime}')
+print('Fuse xorier without cache (c = 1.23, k = 3, q = 8)')
+print(get_size(fuseXorier) / total_keys_size, get_size(train_set) / total_keys_size)
+print(f'build time: {fuseXorier.buildTime}')
 
 fp = 0
 for k in test_set:
-    if fusedXorier.lookup(k) is not None and k not in train_set:
+    if fuseXorier.lookup(k) is not None and k not in train_set:
         fp += 1
 
 print(f'false positive rate: {fp / len(test_set)}')
 
-fusedXorierWithCache = FusedXorierFilter(train_set, 1.23, 3, 8, True)
+fuseXorierWithCache = FuseXorierFilter(train_set, 1.23, 3, 8, True)
 
-print('Fused xorier with cache (c = 1.23, k = 3, q = 8)')
-print(get_size(fusedXorierWithCache) / total_keys_size, get_size(train_set) / total_keys_size)
-print(f'build time: {fusedXorierWithCache.buildTime}')
+print('Fuse xorier with cache (c = 1.23, k = 3, q = 8)')
+print(get_size(fuseXorierWithCache) / total_keys_size, get_size(train_set) / total_keys_size)
+print(f'build time: {fuseXorierWithCache.buildTime}')
 
 fp = 0
 for k in test_set:
-    if fusedXorierWithCache.lookup(k) is not None and k not in train_set:
+    if fuseXorierWithCache.lookup(k) is not None and k not in train_set:
         fp += 1
 
 print(f'false positive rate: {fp / len(test_set)}')
@@ -308,10 +308,10 @@ rand_dict = defaultdict(int)
 for _ in range(3 * 10**6):
     rand_dict[''.join(choices(string.ascii_uppercase + string.ascii_lowercase + string.digits, k=50))] += 1
 num_keys = [250000 * i for i in range(1, 12)]
-fusedXorierTimes = [math.log(FusedXorierFilter(dict(list(rand_dict.items())[:k]), 1.23, 3, 8).buildTime, 10) for k in num_keys]
+fuseXorierTimes = [math.log(FuseXorierFilter(dict(list(rand_dict.items())[:k]), 1.23, 3, 8).buildTime, 10) for k in num_keys]
 plt.plot([i for i in range(0, 5 * 10**6, 10**6)], [i for i in range(5)])
-plt.scatter(num_keys, fusedXorierTimes, s=5)
-plt.title("Build Time vs. Number of Keys (Fused XORier)")
+plt.scatter(num_keys, fuseXorierTimes, s=5)
+plt.title("Build Time vs. Number of Keys (Fuse XORier)")
 plt.xlabel("number of keys")
 plt.ylabel("log10 build time")
 plt.show()
